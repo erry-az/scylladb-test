@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <label for="num-run">Number Run: </label>
+    <input type="number" id="num-run"/>
+    <button id="run">Run Test</button>
+    <div>
+        <canvas id="myChart"></canvas>
+    </div>
+</body>
+<script>
+    window.onload = prepareButton;
+    let myChart, num;
+
+    function prepareButton()
+    {
+        document.getElementById('run').onclick = function()
+        {
+            num = document.getElementById("num-run").value
+            console.log(num)
+            fetch('/run?num='+num).then(function (response) {
+                if (response.ok) {
+                    return response.text();
+                } else {
+                    return Promise.reject(response);
+                }
+            }).then(function (data) {
+                loadResult()
+            }).catch(function (err) {
+                // There was an error
+                console.warn('Something went wrong.', err);
+            });
+        }
+    }
+
+    function loadResult()
+    {
+        fetch('/result').then(function (response) {
+            if (response.ok) {
+                return response.json();
+            } else {
+                return Promise.reject(response);
+            }
+        }).then(function (data) {
+            showInCharts(data)
+        }).catch(function (err) {
+            // There was an error
+            console.warn('Something went wrong.', err);
+        });
+    }
+
+    function showInCharts(testResults) {
+        if (myChart !== undefined) {
+            myChart.destroy();
+        }
+
+        let labels = [];
+        let datasets = {
+            getRedis: {
+                label: 'Redis Get',
+                backgroundColor: 'rgb(255, 99, 132)',
+                borderColor: 'rgb(255, 99, 132)',
+                fill: false,
+                cubicInterpolationMode: 'monotone',
+                data: [],
+            },
+            setRedis: {
+                label: 'Redis Set',
+                backgroundColor: 'rgb(99,185,255)',
+                borderColor: 'rgb(99,148,255)',
+                fill: false,
+                data: [],
+            },
+            getScylla: {
+                label: 'Scylla Get',
+                backgroundColor: 'rgb(253,0,0)',
+                borderColor: 'rgb(246,0,173)',
+                fill: false,
+                data: [],
+            },
+            setScylla: {
+                label: 'Scylla Set',
+                backgroundColor: 'rgb(255,177,99)',
+                borderColor: 'rgb(255,187,99)',
+                fill: false,
+                data: [],
+            },
+            getDiff: {
+                label: 'Get Avg',
+                backgroundColor: 'rgb(0,253,253)',
+                borderColor: 'rgb(0,238,246)',
+                fill: false,
+                data: [],
+            },
+            setDiff: {
+                label: 'Set Avg',
+                backgroundColor: 'rgb(40,133,0)',
+                borderColor: 'rgb(36,129,5)',
+                fill: false,
+                data: [],
+            },
+        };
+
+        testResults.forEach(function (res){
+            labels.push(res.ID)
+            datasets.getRedis.data.push(res.Get.redis)
+            datasets.setRedis.data.push(res.Set.redis)
+            datasets.getScylla.data.push(res.Get.scylla)
+            datasets.setScylla.data.push(res.Set.scylla)
+            datasets.getDiff.data.push((res.Get.scylla + res.Get.redis)/2)
+            datasets.setDiff.data.push((res.Set.scylla + res.Set.redis)/2)
+        });
+
+        const data = {
+            labels: labels,
+            datasets: [
+                datasets.getRedis,
+                datasets.setRedis,
+                datasets.getScylla,
+                datasets.setScylla,
+                datasets.getDiff,
+                datasets.setDiff,
+            ]
+        };
+
+        const config = {
+            type: 'line',
+            data: data,
+            options: {
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'Test Redis Vs Scylla (in Microsecond)'
+                    },
+                },
+                responsive: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                stacked: false,
+                scales: {
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: {
+                            display: true,
+                            text: 'Microsecond'
+                        },
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+
+                        // grid line settings
+                        grid: {
+                            drawOnChartArea: false, // only want the grid lines for one axis to show up
+                        },
+                    },
+                }
+            }
+        };
+
+        myChart = new Chart(
+            document.getElementById('myChart'),
+            config
+        );
+    }
+</script>
+</html>
