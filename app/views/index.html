@@ -9,11 +9,13 @@
     <label for="num-run">Number Run: </label>
     <input type="number" id="num-run"/>
     <button id="run">Run Test</button>
-    <div>
+    <div style="position: relative;">
         <canvas id="myChart"></canvas>
     </div>
+    <div id='table-container' style="position: relative; padding-bottom: 10px;"></div>
 </body>
 <script>
+    const tableContainer = document.getElementById('table-container');
     window.onload = prepareButton;
     let myChart, num;
 
@@ -90,15 +92,15 @@
                 fill: false,
                 data: [],
             },
-            getDiff: {
-                label: 'Get Avg',
+            getPostgres: {
+                label: 'Postgres Get',
                 backgroundColor: 'rgb(0,253,253)',
                 borderColor: 'rgb(0,238,246)',
                 fill: false,
                 data: [],
             },
-            setDiff: {
-                label: 'Set Avg',
+            setPostgres: {
+                label: 'Postgres Set',
                 backgroundColor: 'rgb(40,133,0)',
                 borderColor: 'rgb(36,129,5)',
                 fill: false,
@@ -106,15 +108,117 @@
             },
         };
 
+        const tableHeader = `
+        <tr>
+            <th>ID</th>
+            <th>Get Redis</th>
+            <th>Set Redis</th>
+            <th>Get Scylla</th>
+            <th>Set Scylla</th>
+            <th>Get Postgres</th>
+            <th>Set Postgres</th>
+        </tr>`
+
+        let tableBody = ""
+        let totalData = {
+            getRedis: 0,
+            setRedis: 0,
+            getScylla: 0,
+            setScylla: 0,
+            getPostgres: 0,
+            setPostgres: 0,
+        }
+
+        let minData = {
+            getRedis: 0,
+            setRedis: 0,
+            getScylla: 0,
+            setScylla: 0,
+            getPostgres: 0,
+            setPostgres: 0,
+        }
+
+        let maxData = {
+            getRedis: 0,
+            setRedis: 0,
+            getScylla: 0,
+            setScylla: 0,
+            getPostgres: 0,
+            setPostgres: 0,
+        }
+
         testResults.forEach(function (res){
-            labels.push(res.ID)
+            labels.push(res.ID+1)
             datasets.getRedis.data.push(res.Get.redis)
             datasets.setRedis.data.push(res.Set.redis)
             datasets.getScylla.data.push(res.Get.scylla)
             datasets.setScylla.data.push(res.Set.scylla)
-            datasets.getDiff.data.push((res.Get.scylla + res.Get.redis)/2)
-            datasets.setDiff.data.push((res.Set.scylla + res.Set.redis)/2)
+            datasets.getPostgres.data.push(res.Get.postgres)
+            datasets.setPostgres.data.push(res.Set.postgres)
+
+            totalData.getRedis += res.Get.redis
+            totalData.setRedis += res.Set.redis
+            totalData.getScylla += res.Get.scylla
+            totalData.setScylla += res.Set.scylla
+            totalData.getPostgres += res.Get.postgres
+            totalData.setPostgres += res.Set.postgres
+
+            maxData.getRedis = res.Get.redis > maxData.getRedis ? res.Get.redis : maxData.getRedis
+            maxData.setRedis = res.Set.redis > maxData.setRedis ? res.Set.redis : maxData.setRedis
+            maxData.getScylla = res.Get.scylla > maxData.getScylla ? res.Get.scylla : maxData.getScylla
+            maxData.setScylla = res.Set.scylla > maxData.setScylla ? res.Set.scylla : maxData.setScylla
+            maxData.getPostgres = res.Get.postgres > maxData.getPostgres ? res.Get.postgres : maxData.getPostgres
+            maxData.setPostgres = res.Set.postgres > maxData.setPostgres ? res.Set.postgres : maxData.setPostgres
+
+            minData.getRedis = minData.getRedis < 1 || res.Get.redis < minData.getRedis ?  res.Get.redis : minData.getRedis
+            minData.setRedis = minData.setRedis < 1 || res.Set.redis < minData.setRedis ?  res.Set.redis : minData.setRedis
+            minData.getScylla = minData.getScylla < 1 || res.Get.scylla < minData.getScylla ?  res.Get.scylla : minData.getScylla
+            minData.setScylla = minData.setScylla < 1 || res.Set.scylla < minData.setScylla ?  res.Set.scylla : minData.setScylla
+            minData.getPostgres = minData.getPostgres < 1 || res.Get.postgres < minData.getPostgres ?  res.Get.postgres : minData.getPostgres
+            minData.setPostgres = minData.setPostgres < 1 || res.Set.postgres < minData.setPostgres ?  res.Set.postgres : minData.setPostgres
+
+            tableBody += `
+            <tr>
+                <td>${res.ID+1}</td>
+                <td>${res.Get.redis}</td>
+                <td>${res.Set.redis}</td>
+                <td>${res.Get.scylla}</td>
+                <td>${res.Set.scylla}</td>
+                <td>${res.Get.postgres}</td>
+                <td>${res.Set.postgres}</td>
+            </tr>
+            `
         });
+
+        tableBody += `
+            <tr>
+                <td>Avg</td>
+                <td>${totalData.getRedis / testResults.length}</td>
+                <td>${totalData.setRedis / testResults.length}</td>
+                <td>${totalData.getScylla / testResults.length}</td>
+                <td>${totalData.setScylla / testResults.length}</td>
+                <td>${totalData.getPostgres / testResults.length}</td>
+                <td>${totalData.setPostgres / testResults.length}</td>
+            </tr>
+            <tr>
+                <td>Min</td>
+                <td>${minData.getRedis}</td>
+                <td>${minData.setRedis}</td>
+                <td>${minData.getScylla}</td>
+                <td>${minData.setScylla}</td>
+                <td>${minData.getPostgres}</td>
+                <td>${minData.setPostgres}</td>
+            </tr>
+            <tr>
+                <td>Max</td>
+                <td>${maxData.getRedis}</td>
+                <td>${maxData.setRedis}</td>
+                <td>${maxData.getScylla}</td>
+                <td>${maxData.setScylla}</td>
+                <td>${maxData.getPostgres}</td>
+                <td>${maxData.setPostgres}</td>
+            </tr>
+            `
 
         const data = {
             labels: labels,
@@ -123,8 +227,8 @@
                 datasets.setRedis,
                 datasets.getScylla,
                 datasets.setScylla,
-                datasets.getDiff,
-                datasets.setDiff,
+                datasets.getPostgres,
+                datasets.setPostgres,
             ]
         };
 
@@ -168,10 +272,13 @@
             }
         };
 
+        let chartID = document.getElementById('myChart')
         myChart = new Chart(
-            document.getElementById('myChart'),
+            chartID,
             config
         );
+
+        tableContainer.innerHTML = `<table>${tableHeader}${tableBody}</table>`;
     }
 </script>
 </html>

@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/go-redis/redis/v8"
+	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
 	"github.com/yugabyte/gocql"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -21,8 +23,9 @@ import (
 type Type string
 
 const (
-	Redis  Type = "redis"
-	Scylla Type = "scylla"
+	Redis    Type = "redis"
+	Scylla   Type = "scylla"
+	Postgres Type = "postgres"
 
 	KeyTest = "test-"
 )
@@ -31,7 +34,8 @@ var (
 	log           *zap.Logger
 	scyllaSession *gocql.Session
 	rdb           *redis.Client
-	len           int64
+	pgDb          *sqlx.DB
+	testLen       int64
 	resultSet     map[Type][]time.Duration
 	resultGet     map[Type][]time.Duration
 )
@@ -39,6 +43,7 @@ var (
 func main() {
 	log = CreateLogger("debug")
 
+	// connect redis
 	rdb = redis.NewClient(&redis.Options{
 		Addr: "172.10.0.3:6379",
 	})
@@ -50,12 +55,29 @@ func main() {
 
 	log.Info(ping)
 
+	// connect scylla
 	scyllaSession, err = ConnectScylla("tracking", "scylla-node1", "scylla-node2", "scylla-node3")
 	if err != nil {
 		log.Error(err.Error())
 		os.Exit(1)
 	}
 	defer scyllaSession.Close()
+
+	// connect postgres
+	pgDb, err = sqlx.Connect("postgres",
+		"postgres://admin:test@postgres-scylladb-test/tracking?sslmode=disable")
+	if err != nil {
+		log.Error(err.Error())
+		os.Exit(1)
+	}
+
+	err = pgDb.Ping()
+	if err != nil {
+		log.Error(err.Error())
+		os.Exit(1)
+	}
+
+	defer pgDb.Close()
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		var filepath = path.Join("/src/app/views", "index.html")
@@ -113,7 +135,7 @@ func run(w http.ResponseWriter, r *http.Request) {
 		num = 100
 	}
 
-	len = num
+	testLen = num
 	resultGet = make(map[Type][]time.Duration)
 	resultSet = make(map[Type][]time.Duration)
 
@@ -132,6 +154,7 @@ func run(w http.ResponseWriter, r *http.Request) {
 			}
 		})
 
+		keys := make([]string, 0)
 		// Get
 		execGet(Redis, num, func(i int, val string) {
 			res, err := rdb.Get(ctx, val).Result()
@@ -140,7 +163,52 @@ func run(w http.ResponseWriter, r *http.Request) {
 			}
 
 			fmt.Println("redis: ", val, res)
+			keys = append(keys, val)
 		})
+
+		// clear data
+		_, err := rdb.Del(ctx, keys...).Result()
+		if err != nil {
+			log.Error(err.Error())
+		}
+	}()
+
+	wg.Add(1)
+	// running postgres
+	go func() {
+		defer wg.Done()
+
+		// Set
+		execSet(Postgres, num, func(i int, val string) {
+			_, err := pgDb.Exec("INSERT INTO heart_rate_ttl (name, value) VALUES ($1,$2)", val, i)
+			if err != nil {
+				log.Error(err.Error())
+			}
+		})
+
+		// Get
+		execGet(Postgres, num, func(i int, val string) {
+			type result struct {
+				ID    string `db:"id"`
+				Name  string `db:"name"`
+				Value int    `db:"value"`
+			}
+
+			var res result
+
+			err := pgDb.Get(&res, "SELECT id, name, value FROM heart_rate_ttl WHERE name=$1 AND value=$2", val, i)
+			if err != nil {
+				log.Error(err.Error())
+			}
+
+			fmt.Println("postgresql: ", res.ID, res.Name, res.Value)
+		})
+
+		// clear data
+		_, err := pgDb.Exec("DELETE FROM heart_rate_ttl")
+		if err != nil {
+			log.Error(err.Error())
+		}
 	}()
 
 	wg.Add(1)
@@ -175,6 +243,13 @@ func run(w http.ResponseWriter, r *http.Request) {
 				log.Error(err.Error())
 			}
 		})
+
+		// clear data
+		err := scyllaSession.
+			Query("TRUNCATE heart_rate_ttl").Exec()
+		if err != nil {
+			log.Error(err.Error())
+		}
 	}()
 
 	wg.Wait()
@@ -209,18 +284,20 @@ func result(w http.ResponseWriter, r *http.Request) {
 		Set map[Type]float64
 	}
 
-	results := make([]Result, len)
+	results := make([]Result, testLen)
 	for i := range results {
 		num := i
 		results[num] = Result{
 			ID: num,
 			Get: map[Type]float64{
-				Scylla: float64(resultGet[Scylla][i] / time.Microsecond),
-				Redis:  float64(resultGet[Redis][i] / time.Microsecond),
+				Scylla:   float64(resultGet[Scylla][i] / time.Microsecond),
+				Redis:    float64(resultGet[Redis][i] / time.Microsecond),
+				Postgres: float64(resultGet[Postgres][i] / time.Microsecond),
 			},
 			Set: map[Type]float64{
-				Scylla: float64(resultSet[Scylla][i] / time.Microsecond),
-				Redis:  float64(resultSet[Redis][i] / time.Microsecond),
+				Scylla:   float64(resultSet[Scylla][i] / time.Microsecond),
+				Redis:    float64(resultSet[Redis][i] / time.Microsecond),
+				Postgres: float64(resultSet[Postgres][i] / time.Microsecond),
 			},
 		}
 	}

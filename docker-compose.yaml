@@ -22,7 +22,23 @@ services:
         ipv4_address: 172.10.0.10
     depends_on:
       - redis
+      - postgres
       - scylla-node1
+      - scylla-node2
+      - scylla-node3
+  postgres:
+    container_name: postgres-scylladb-test
+    image: postgres:12.0-alpine
+    environment:
+      POSTGRES_DB: tracking
+      POSTGRES_PASSWORD: test
+      POSTGRES_USER: admin
+      PGDATA: /var/lib/postgresql/data/tracking
+    volumes:
+      - ./postgres/data:/var/lib/postgresql/data/tracking
+      - ./postgres/init:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
   redis:
     container_name: redis-scylladb-test
     image: redis:6.2.6
@@ -40,7 +56,6 @@ services:
       - "./scylla/scylla.yaml:/etc/scylla/scylla.yaml"
       - "./scylla/cassandra-rackdc.properties.dc1:/etc/scylla/cassandra-rackdc.properties"
       - "./scylla/mutant-data.cql:/mutant-data.cql"
-#    entrypoint: sh -c "cqlsh -f /mutant-data.cql"
     networks:
       default:
         ipv4_address: 172.10.0.4
